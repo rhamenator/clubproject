@@ -10,6 +10,7 @@ fake = Faker('no_NO')
 
 # Number of records to generate
 num_records = 200
+batch_size = 50
 
 # Age constraints
 min_age = 14
@@ -29,17 +30,10 @@ fieldnames = [
     'address', 'postal_code', 'city', 'guardian_first_name', 'guardian_last_name', 'guardian_phone', 'timestamp'
 ]
 
-# Function to get gender from Genderize API
-def get_gender(name):
-    response = requests.get(f"https://api.genderize.io?name={name}")
-    if response.status_code == 200:
-        data = response.json()
-        return data.get('gender')
-    return None
-
 # Function to generate a random guardian name
 def random_guardian_name():
     return fake.first_name(), fake.last_name()
+
 
 # Create the SQLite database and table if it doesn't exist
 def create_database():
@@ -94,38 +88,54 @@ def append_to_csv(data):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         writer.writerow(dict(zip(fieldnames, [None] + list(data) + [timestamp])))
 
-# Function to generate a random gender in Norwegian
+# Function to get genders from Genderize API in batch
+def get_genders(names):
+    try:
+        response = requests.get(f"https://api.genderize.io", params={'name[]': names})
+        if response.status_code == 200:
+            data = response.json()
+            return {item['name']: item['gender'] for item in data}
+        else:
+            print(f"Error: Received status code {response.status_code} from Genderize API")
+            return {}
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        return {}
+
 def random_gender():
-    return fake.random_element(elements=('Mann', 'Kvinne'))
+    return fake.random_element(elements=('Mann', 'Kvinne', ''))
 
 # Generate fake data
-def generate_data(num_records):
+def generate_data(num_records, batch_size=50):
     data = []
-    for i in range(1, num_records + 1):
-        first_name = fake.first_name()
-        last_name = fake.last_name()
-        # gender = get_gender(first_name)
-        # if gender == 'male':
-        #     gender = 'Mann'
-        # elif gender == 'female':
-        #     gender = 'Kvinne'
-        # else:
-        #     gender = ''  # Unknown gender
+    names = [fake.first_name() for _ in range(num_records)]
+    
+    for i in range(0, num_records, batch_size):
+        batch_names = names[i:i + batch_size]
+        genders = get_genders(batch_names)
         
-        gender = random_gender()
-        birthdate = fake.date_of_birth(minimum_age=min_age, maximum_age=max_age).strftime('%d.%m.%Y')
-        email = fake.email()
-        phone = fake.phone_number()
-        address = fake.street_address()
-        postal_code = fake.postcode()
-        city = fake.city()
-        guardian_first_name, guardian_last_name = random_guardian_name()
-        guardian_phone = fake.phone_number()
+        for j, first_name in enumerate(batch_names, i + 1):
+            last_name = fake.last_name()
+            gender = genders.get(first_name, 'Ukjent')
+            if gender == 'male':
+                gender = 'Mann'
+            elif gender == 'female':
+                gender = 'Kvinne'
+            else:
+                gender = random_gender()  # Unknown gender - assign a random gender
+            birthdate = fake.date_of_birth(minimum_age=min_age, maximum_age=max_age).strftime('%d.%m.%Y')
+            email = fake.email()
+            phone = fake.phone_number()
+            address = fake.street_address()
+            postal_code = fake.postcode()
+            city = fake.city()
+            guardian_first_name, guardian_last_name = random_guardian_name()
+            guardian_phone = fake.phone_number()
 
-        data.append((
-            i, first_name, last_name, gender, birthdate, email, phone, 
-            address, postal_code, city, guardian_first_name, guardian_last_name, guardian_phone
-        ))
+            data.append((
+                j, first_name, last_name, gender, birthdate, email, phone, 
+                address, postal_code, city, guardian_first_name, guardian_last_name, guardian_phone
+            ))
     return data
 
 # Main function to create the database, generate data, and insert it into the database
